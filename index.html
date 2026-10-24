@@ -1,1 +1,94 @@
 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Station Hold Tracker</title>
+<style>
+body{margin:0;padding:16px;background:#101820;color:#f2f6fa;font:16px Arial,sans-serif}
+h1{font-size:25px}h2{font-size:20px}
+.card{background:#17232d;border:1px solid #344653;border-radius:12px;padding:14px;margin:12px 0}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+button{border:0;border-radius:8px;padding:12px;margin:4px 2px;color:white;font-weight:bold}
+.hold{background:#c83f48}.normal{background:#21865a}.export{background:#344957}
+.time{font-size:22px;font-weight:bold}.muted{color:#9eafbd}
+@media(max-width:420px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<h1>Station Hold Tracker</h1>
+<p class="muted">UTC · 24-hour clock · Duration in HH:MM</p>
+<div class="card">Current UTC: <b id="clock"></b></div>
+<div id="stations" class="grid"></div>
+<h2>Daily Hold Summary</h2>
+<div id="summary" class="card"></div>
+<button class="export" onclick="exportCSV()">Export CSV</button>
+<button class="export" onclick="resetDay()">Reset Today's Records</button>
+<h2>Activity Log</h2>
+<div id="log"></div>
+<script>
+const ids=["JED","DMM","AHB","RUH","TUU","ELQ"];
+const key="stationHoldTracker_v2";
+let data;
+try{data=JSON.parse(localStorage.getItem(key)||'{"events":[]}');}
+catch(e){data={events:[]};}
+function now(){return new Date().toISOString();}
+function day(){return now().slice(0,10);}
+function fmt(ms){
+ let m=Math.floor(Math.max(0,ms)/60000);
+ return String(Math.floor(m/60)).padStart(2,"0")+":"+String(m%60).padStart(2,"0");
+}
+function save(){localStorage.setItem(key,JSON.stringify(data));render();}
+function active(id){return data.events.find(e=>e.id===id&&!e.end);}
+function total(id){
+ return data.events.filter(e=>e.id===id&&e.start.slice(0,10)===day())
+ .reduce((s,e)=>s+Math.max(0,Date.parse(e.end||now())-Date.parse(e.start)),0);
+}
+function act(id,type){
+ if(type==="HOLD"){
+  if(!active(id))data.events.push({id,type:"HOLD",start:now(),end:null});
+ }else{
+  const e=active(id);
+  if(e)e.end=now();
+ }
+ save();
+}
+function render(){
+ document.getElementById("clock").textContent=now().slice(11,16)+"Z";
+ document.getElementById("stations").innerHTML=ids.map(id=>{
+  const on=!!active(id);
+  return `<div class="card"><h2>${id}</h2>
+  <p>${on?"🔴 ON HOLD":"🟢 NORMAL"}</p>
+  <p>Total HOLD</p><div class="time">${fmt(total(id))}</div>
+  <button class="hold" ${on?"disabled":""} onclick="act('${id}','HOLD')">HOLD</button>
+  <button class="normal" ${!on?"disabled":""} onclick="act('${id}','NORMAL')">Back to Normal</button></div>`;
+ }).join("");
+ document.getElementById("summary").innerHTML=ids.map(id=>
+  `<p><b>${id}</b> — ${fmt(total(id))}</p>`).join("");
+ document.getElementById("log").innerHTML=data.events.slice().reverse().map(e=>
+  `<div class="card"><b>${e.id} — ${e.end?"BACK TO NORMAL":"HOLD"}</b>
+  <p>${e.start.slice(0,10)} · Start ${e.start.slice(11,16)}Z
+  ${e.end?" · End "+e.end.slice(11,16)+"Z":" · In progress"}</p>
+  <p>Duration: ${fmt(Date.parse(e.end||now())-Date.parse(e.start))}</p></div>`
+ ).join("")||'<p class="muted">No records yet.</p>';
+}
+function exportCSV(){
+ const rows=[["Station","Start UTC","End UTC","Duration"]];
+ data.events.forEach(e=>rows.push([e.id,e.start,e.end||"In progress",fmt(Date.parse(e.end||now())-Date.parse(e.start))]));
+ const csv="\ufeff"+rows.map(r=>r.map(x=>'"'+String(x).replace(/"/g,'""')+'"').join(",")).join("\r\n");
+ const a=document.createElement("a");
+ a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));
+ a.download="Station_Hold_Report.csv";a.click();
+ setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+function resetDay(){
+ if(confirm("Delete today's records?")){
+  data.events=data.events.filter(e=>e.start.slice(0,10)!==day());save();
+ }
+}
+render();setInterval(render,15000);
+</script>
+</body>
+</html>
+
